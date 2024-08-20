@@ -1,6 +1,8 @@
 <div align="center">
 
-# Rotary Position Embedding for Vision Transformer
+# Code for Cope Vit
+
+<!-- # Rotary Position Embedding for Vision Transformer
 
 **[Byeongho Heo](https://sites.google.com/view/byeongho-heo/home), [Song Park](https://8uos.github.io/), [Dongyoon Han](https://sites.google.com/site/dyhan0920/), [Sangdoo Yun](https://sangdooyun.github.io/)** <br>
 
@@ -121,4 +123,4 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-```
+``` -->
