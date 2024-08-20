@@ -1,0 +1,14 @@
+MODEL:
+  TYPE: swin_cope2d
+  NAME: swin_cope2d_npos10_k_base_patch4_window7_224
+  DROP_PATH_RATE: 0.5
+  SWIN:
+    EMBED_DIM: 128
+    DEPTHS: [ 2, 2, 18, 2 ]
+    NUM_HEADS: [ 4, 8, 16, 32 ]
+    WINDOW_SIZE: 7
+  SWIN_ROPE:
+    N_POSMAX: 10
+    K: 1
+    Q: 0
+    V: 0
