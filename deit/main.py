@@ -36,7 +36,6 @@ import wandb
 import warnings
 warnings.filterwarnings("ignore", "Argument interpolation should be of type InterpolationMode instead of int. Please, use InterpolationMode enum.")
 
-
 def get_args_parser():
     parser = argparse.ArgumentParser('DeiT training and evaluation script', add_help=False)
     parser.add_argument('--batch-size', default=64, type=int)
@@ -164,7 +163,7 @@ def get_args_parser():
     # Dataset parameters
     parser.add_argument('--data-path', default='/datasets01/imagenet_full_size/061417/', type=str,
                         help='dataset path')
-    parser.add_argument('--data-set', default='IMNET', choices=['CIFAR', 'IMNET', 'INAT', 'INAT19', 'CIFAR10'],
+    parser.add_argument('--data-set', default='IMNET', choices=['CIFAR', 'IMNET', 'INAT', 'INAT19', 'CIFAR10', 'TINY'],
                         type=str, help='Image Net dataset path')
     parser.add_argument('--inat-category', default='name',
                         choices=['kingdom', 'phylum', 'class', 'order', 'supercategory', 'family', 'genus', 'name'],
@@ -193,6 +192,9 @@ def get_args_parser():
     parser.add_argument('--world_size', default=1, type=int,
                         help='number of distributed processes')
     parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
+    
+    parser.add_argument('--wandb-project', default='Rope-2D', type=str)
+    parser.add_argument('--wandb-name', default=None, type=str)
     return parser
 
 
@@ -436,7 +438,7 @@ def main(args):
     # exit()
     
     if torch.distributed.get_rank() == 0:
-        wandb.init(project='Rope-2D', config=args)
+        wandb.init(project=args.wandb_project, name=args.wandb_name, config=args)
         wandb.watch(model)
 
     print(args)

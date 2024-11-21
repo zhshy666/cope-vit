@@ -1,6 +1,11 @@
+from cmath import nan, sqrt
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import pywt
+import cv2
+import numpy as np
+import math
 
 from functools import partial
 from typing import Tuple
@@ -35,17 +40,22 @@ class CoPE_2d_unit(nn.Module):
         trunc_normal_(self.pos_emb, std=.02)
         # nn.init.normal_(self.pos_emb, mean=0.0, std=0.01)
 
-    def forward(self, q, k, v, attn_logits, is_cope_k=1):
+    def forward(self, q, k, v, is_cope_k=1):
         # print(self.w_k.grad)
         # query: (batch_size, heads, seq_len, head_dim)
         # attn_logits: (batch_size, heads, seq_len, seq_len)
         # compute positions
         
-        if self.mode == 1:
+        if self.mode == 0:
+            attn_logits = (q * self.scale) @ k.transpose(-2, -1)
+        elif self.mode == 1:
             k = k @ self.w_k
             attn_logits = (q * self.scale) @ k.transpose(-2, -1)
         elif self.mode == 2:
             attn_logits = (q * self.scale) @ v.transpose(-2, -1)
+        elif self.mode == 3:  # todo: 在 k 上进行小波变换
+            k = nan
+            attn_logits = (q * self.scale) @ k.transpose(-2, -1)
         gates = torch.sigmoid(attn_logits)
         
         # print(attn_logits.grad)
@@ -63,13 +73,23 @@ class CoPE_2d_unit(nn.Module):
     
     
 class CoPE2d_v2(nn.Module):
-    def __init__(self, npos_max, head_dim, scale):
+    def __init__(self, npos_max, head_dim, scale, mode, dwt, num_heads, num_patches, img_size):
         super(CoPE2d_v2, self).__init__()
         self.npos_max = npos_max
-        self.cope_x = CoPE_2d_unit(npos_max, head_dim, scale)
-        self.cope_y = CoPE_2d_unit(npos_max, head_dim, scale)
+        self.cope_x = CoPE_2d_unit(npos_max, head_dim, scale, mode)
+        self.cope_y = CoPE_2d_unit(npos_max, head_dim, scale, mode)
+        self.dwt = dwt
+        # print((img_size // 2)**2, num_patches * num_heads * head_dim)
+        self.embed_dwt_x = nn.Sequential(
+            nn.Linear((img_size // 2)**2, num_patches * num_heads * head_dim),
+            nn.ReLU()
+        )
+        self.embed_dwt_y = nn.Sequential(
+            nn.Linear((img_size // 2)**2, num_patches * num_heads * head_dim),
+            nn.ReLU()
+        )
 
-    def forward(self, query, key, value, attn_logits, is_cope_k):
+    def forward(self, query, key, value, is_cope_k, dwt_x=None, dwt_y=None):
         # query: (batch_size, heads, seq_len, head_dim)
         
         # 选出对应的行和列，维度归到 batch 上
@@ -79,7 +99,8 @@ class CoPE2d_v2(nn.Module):
         query = query.reshape(B, heads, H, W, head_dim)
         key = key.reshape(B, heads, H, W, head_dim)
         value = value.reshape(B, heads, H, W, head_dim)
-        # print(query_x.shape)  # [128, 6, 14, 14, 32]
+        # [batch, heads, patch_h, patch_w, hidden], [batch, h/2, w/2]
+        # print(query.shape, dwt_x.shape)
         
         q_x = query.permute(0, 2, 1, 3, 4).reshape(B*H, heads, W, head_dim)
         q_y = query.permute(0, 3, 1, 2, 4).reshape(B*W, heads, H, head_dim)
@@ -88,16 +109,30 @@ class CoPE2d_v2(nn.Module):
         # query_x = q_x[:, :, :, :head_dim // 2]
         # query_y = q_y[:, :, :, head_dim // 2:]
         
-        k_x = key.permute(0, 2, 1, 3, 4).reshape(B*H, heads, W, head_dim)
-        k_y = key.permute(0, 3, 1, 2, 4).reshape(B*W, heads, H, head_dim)
+        
+        # todo: x 和 y 轴分别小波变换
+        # 问题1：能否在 x 进行 patch embedding 之后再进行小波变换，也就是小波变换怎么用的问题
+        # 问题2：能否将小波变换后的结果和原本的 key 进行一些操作
+        #       （例如 concat，乘积，FN 等）进行维度映射，qkv 的维度需要保持一致
+        # 问题3：能否直接对 key 进行小波变换？这样其实没有显式用到原始图像的信息
+        
+        if self.dwt:
+            # print(dwt_x.shape)
+            k_x = self.embed_dwt_x(dwt_x.reshape(B, -1)).reshape(B, heads, H, W, head_dim)
+            k_y = self.embed_dwt_y(dwt_y.reshape(B, -1)).reshape(B, heads, H, W, head_dim)
+            
+            k_x = k_x.permute(0, 2, 1, 3, 4).reshape(B*H, heads, W, head_dim)
+            k_y = k_y.permute(0, 3, 1, 2, 4).reshape(B*W, heads, H, head_dim)
+        else:
+            k_x = key.permute(0, 2, 1, 3, 4).reshape(B*H, heads, W, head_dim)
+            k_y = key.permute(0, 3, 1, 2, 4).reshape(B*W, heads, H, head_dim)
         
         v_x = value.permute(0, 2, 1, 3, 4).reshape(B*H, heads, W, head_dim)
         v_y = value.permute(0, 3, 1, 2, 4).reshape(B*W, heads, H, head_dim)
         
         # 分割 q k 并计算新的 att
-        w_x = self.cope_x(q_x, k_x, v_x, attn_logits, is_cope_k)  # [1792, 6, 14, 14]
-        
-        w_y = self.cope_y(q_y, k_y, v_y, attn_logits, is_cope_k)
+        w_x = self.cope_x(q_x, k_x, v_x, is_cope_k)  # [1792, 6, 14, 14]
+        w_y = self.cope_y(q_y, k_y, v_y, is_cope_k)
         
         w_x = w_x.reshape(B, H, heads, W, H).permute(0, 2, 1, 3, 4).reshape(B * heads, H * W, H)
         w_y = w_y.reshape(B, W, heads, H, W).permute(0, 2, 3, 1, 4).reshape(B * heads, H * W, H)
@@ -115,16 +150,18 @@ class CoPE2d_v2(nn.Module):
 
 
 class CoPE2dAttention_v2(Attention):
-    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0., npos_max=10, cope_k=1, cope_q=0, cope_v=0):
-        super().__init__(dim, num_heads, qkv_bias, qk_scale, attn_drop, proj_drop)
+    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0.,
+                 npos_max=10, cope_k=1, cope_q=0, cope_v=0, mode=0, dwt=0, num_patches=0, img_size=224):
+        super().__init__(dim, num_heads, qkv_bias, qk_scale, attn_drop, proj_drop, 
+                         npos_max, cope_k, cope_q, cope_v, mode, dwt, num_patches, img_size)
         self.num_heads = num_heads
         head_dim = dim // num_heads
-        self.cope = CoPE2d_v2(npos_max, head_dim, self.scale)
+        self.cope = CoPE2d_v2(npos_max, head_dim, self.scale, mode, dwt, num_heads, num_patches, img_size)
         self.cope_k = cope_k
         self.cope_q = cope_q
         self.cope_v = cope_v
 
-    def forward(self, x, mask=None):
+    def forward(self, x, mask=None, dwt_x=None, dwt_y=None):
         B, N, C = x.shape
 
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
@@ -137,9 +174,9 @@ class CoPE2dAttention_v2(Attention):
 
         # attn += self.cope(q, k, v)
         if self.cope_k:
-            attn += self.cope(q[:, :, 1:], k[:, :, 1:], v[:, :, 1:], attn[:, :, 1:, 1:])
+            attn += self.cope(q[:, :, 1:], k[:, :, 1:], v[:, :, 1:], dwt_x=dwt_x, dwt_y=dwt_y, is_cope_k=1)
         if self.cope_q:
-            attn += self.cope(q[:, :, 1:], k[:, :, 1:], v[:, :, 1:], attn[:, :, 1:, 1:], is_cope_k=0)
+            attn += self.cope(q[:, :, 1:], k[:, :, 1:], v[:, :, 1:], dwt_x=dwt_x, dwt_y=dwt_y, is_cope_k=0)
             if self.cope_k:
                 pe = self.cope.get_pos_embed()
                 attn += pe @ pe
@@ -163,8 +200,8 @@ class CoPE_2d_Block(Layer_scale_init_Block):
         kwargs["Attention_block"] = CoPE2dAttention_v2
         super().__init__(*args, **kwargs)
 
-    def forward(self, x):
-        x = x + self.drop_path(self.attn(self.norm1(x)))
+    def forward(self, x, dwt_x=None, dwt_y=None):
+        x = x + self.drop_path(self.attn(self.norm1(x), dwt_x=dwt_x, dwt_y=dwt_y))
         x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x
 
@@ -199,8 +236,22 @@ class cope_vit_models(vit_models):
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
     def forward_features(self, x):
-        B = x.shape[0]
-        x = self.patch_embed(x)
+        B, _, H, W = x.shape
+        
+        # here: 在图像编码到隐空间前进行小波变换
+        images = x[:, 0].reshape(B, H, W).cpu().numpy()
+        coeffs = pywt.dwt2(images, 'haar')
+        # 从结果中获取近似子带和细节子带
+        cA, (cH, cV, cD) = coeffs
+        # cV = torch.tensor(cV).to(torch.cuda.current_device())
+        # cD = torch.tensor(cD).to(torch.cuda.current_device())
+        # 小波变换代码结束
+        
+        x = self.patch_embed(x)  # [batch, patch, hidden]
+        # print(x.shape)
+        
+        # here: 在图像编码到隐空间后进行小波变换
+        # images = x[:, 0].reshape(B, H, W).cpu().numpy()
 
         cls_tokens = self.cls_token.expand(B, -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
 
@@ -210,19 +261,50 @@ class cope_vit_models(vit_models):
         x = self.pos_drop(x)
 
         for blk in self.blocks:
-            x = blk(x)
+            x = blk(x, 
+                    dwt_x=torch.tensor(cV).to(torch.cuda.current_device()), 
+                    dwt_y=torch.tensor(cH).to(torch.cuda.current_device())
+                )
 
         x = self.norm(x)
         return x[:, 0]
 
 
+# mode = 0
 @register_model
 def cope_2d_v2_deit_small_patch16_LS(pretrained=False, img_size=224, pretrained_21k = False,  **kwargs):
     model = cope_vit_models(
         img_size = img_size, patch_size=16, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, qkv_bias=True,
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), block_layers=CoPE_2d_Block, Attention_block=CoPE2dAttention_v2(cope_k=1),
-        rope_theta=10.0, rope_mixed=True, **kwargs)
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), block_layers=CoPE_2d_Block, 
+        Attention_block=CoPE2dAttention_v2,
+        rope_theta=10.0, rope_mixed=True,
+        cope_k=1, mode=0, num_patches=img_size//16,
+        **kwargs)
     model.default_cfg = _cfg()
     return model
 
+@register_model
+def cope_2d_v2_deit_dwt_small_patch16_LS(pretrained=False, img_size=224, pretrained_21k = False,  **kwargs):
+    model = cope_vit_models(
+        img_size = img_size, patch_size=16, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, qkv_bias=True,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), block_layers=CoPE_2d_Block, 
+        Attention_block=CoPE2dAttention_v2,
+        rope_theta=10.0, rope_mixed=True,
+        cope_k=1, mode=0, dwt=1, num_patches=img_size//16,
+        **kwargs)
+    model.default_cfg = _cfg()
+    return model
+
+# mode = 1
+@register_model
+def cope_2d_v2_sep_keys_deit_small_patch16_LS(pretrained=False, img_size=224, pretrained_21k = False,  **kwargs):
+    model = cope_vit_models(
+        img_size = img_size, patch_size=16, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, qkv_bias=True,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), block_layers=CoPE_2d_Block, 
+        Attention_block=CoPE2dAttention_v2,
+        rope_theta=10.0, rope_mixed=True, 
+        cope_k=1, mode=1, num_patches=img_size//16,
+        **kwargs)
+    model.default_cfg = _cfg()
+    return model
 # swin transformer

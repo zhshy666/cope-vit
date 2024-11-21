@@ -12,7 +12,8 @@ from timm.models.registry import register_model
 
 class Attention(nn.Module):
     # taken from https://github.com/rwightman/pytorch-image-models/blob/master/timm/models/vision_transformer.py
-    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0.):
+    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0.,
+                 npos_max=10, cope_k=1, cope_q=0, cope_v=0, mode=0, dwt=0, num_patches=0, img_size=224):
         super().__init__()
         self.num_heads = num_heads
         head_dim = dim // num_heads
@@ -42,12 +43,14 @@ class Attention(nn.Module):
 class Block(nn.Module):
     # taken from https://github.com/rwightman/pytorch-image-models/blob/master/timm/models/vision_transformer.py
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm,Attention_block = Attention,Mlp_block=Mlp
-                 ,init_values=1e-4):
+                 drop_path=0., npos_max=10, cope_k=1, cope_q=0, cope_v=0, mode=0, dwt=0, num_patches=0,
+                 act_layer=nn.GELU, norm_layer=nn.LayerNorm,Attention_block = Attention,Mlp_block=Mlp
+                 ,init_values=1e-4, img_size=224):
         super().__init__()
         self.norm1 = norm_layer(dim)
         self.attn = Attention_block(
-            dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
+            dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop,
+            img_size=img_size, npos_max=npos_max, cope_k=cope_k, cope_q=cope_q, cope_v=cope_v, mode=mode, dwt=dwt, num_patches=num_patches)
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
@@ -63,12 +66,16 @@ class Layer_scale_init_Block(nn.Module):
     # taken from https://github.com/rwightman/pytorch-image-models/blob/master/timm/models/vision_transformer.py
     # with slight modifications
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm,Attention_block = Attention,Mlp_block=Mlp
-                 ,init_values=1e-4):
+                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm,Attention_block = Attention,Mlp_block=Mlp, init_values=1e-4, 
+                 npos_max=10, cope_k=1, cope_q=0, cope_v=0, mode=0, dwt=0, num_patches=0, img_size=224
+                 ):
         super().__init__()
         self.norm1 = norm_layer(dim)
         self.attn = Attention_block(
-            dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
+            dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop,
+            npos_max=npos_max, cope_k=cope_k, cope_q=cope_q, cope_v=cope_v, mode=mode, dwt=dwt,
+            num_patches=num_patches, img_size=img_size
+            )
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
@@ -179,8 +186,10 @@ class vit_models(nn.Module):
                  block_layers = Block,
                  Patch_layer=PatchEmbed,act_layer=nn.GELU,
                  Attention_block = Attention, Mlp_block=Mlp,
-                dpr_constant=True,init_scale=1e-4,
-                mlp_ratio_clstk = 4.0,**kwargs):
+                 dpr_constant=True,init_scale=1e-4,
+                 mlp_ratio_clstk = 4.0,
+                 npos_max=10, cope_k=1, cope_q=0, cope_v=0, mode=0, dwt=0, num_patches=0,
+                 **kwargs):
         super().__init__()
         
         self.dropout_rate = drop_rate
@@ -204,7 +213,8 @@ class vit_models(nn.Module):
         self.blocks = nn.ModuleList([
             block_layers(
                 dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
-                drop=0.0, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer,
+                drop=0.0, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer, img_size=img_size,
+                npos_max=npos_max, cope_k=cope_k, cope_q=cope_q, cope_v=cope_v, mode=mode, dwt=dwt, num_patches=num_patches,
                 act_layer=act_layer,Attention_block=Attention_block,Mlp_block=Mlp_block,init_values=init_scale)
             for i in range(depth)])
         

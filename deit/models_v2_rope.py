@@ -132,7 +132,7 @@ class RoPEAttention(Attention):
         q[:, :, 1:], k[:, :, 1:] = apply_rotary_emb(q[:, :, 1:], k[:, :, 1:], freqs_cis=freqs_cis)
         attn = (q * self.scale) @ k.transpose(-2, -1)
         
-        attn += self.cope(q, attn, k)
+        # attn += self.cope(q, attn, k)
         
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)

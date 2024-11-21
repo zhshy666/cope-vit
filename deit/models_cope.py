@@ -72,11 +72,11 @@ class CoPE(nn.Module):
 
 
 class CoPEAttention(Attention):
-    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0., npos_max=10, cope_k=1, cope_q=0, cope_v=0):
+    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0., npos_max=10, cope_k=1, cope_q=0, cope_v=0, mode=0):
         super().__init__(dim, num_heads, qkv_bias, qk_scale, attn_drop, proj_drop)
         self.num_heads = num_heads
         head_dim = dim // num_heads
-        self.cope = CoPE(npos_max, head_dim, self.scale)
+        self.cope = CoPE(npos_max, head_dim, self.scale, mode)
         self.cope_k = cope_k
         self.cope_q = cope_q
         self.cope_v = cope_v
@@ -176,7 +176,25 @@ class cope_vit_models(vit_models):
 def cope_deit_small_patch16_LS(pretrained=False, img_size=224, pretrained_21k = False,  **kwargs):
     model = cope_vit_models(
         img_size = img_size, patch_size=16, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, qkv_bias=True,
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), block_layers=CoPE_Block, Attention_block=CoPEAttention,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), block_layers=CoPE_Block, Attention_block=CoPEAttention(dim=384, mode=0),
+        rope_theta=10.0, rope_mixed=True, **kwargs)
+    model.default_cfg = _cfg()
+    return model
+
+@register_model
+def cope_sep_deit_small_patch16_LS(pretrained=False, img_size=224, pretrained_21k = False,  **kwargs):
+    model = cope_vit_models(
+        img_size = img_size, patch_size=16, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, qkv_bias=True,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), block_layers=CoPE_Block, Attention_block=CoPEAttention(dim=384, mode=1),
+        rope_theta=10.0, rope_mixed=True, **kwargs)
+    model.default_cfg = _cfg()
+    return model
+
+@register_model
+def cope_val_deit_small_patch16_LS(pretrained=False, img_size=224, pretrained_21k = False,  **kwargs):
+    model = cope_vit_models(
+        img_size = img_size, patch_size=16, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, qkv_bias=True,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), block_layers=CoPE_Block, Attention_block=CoPEAttention(dim=384, mode=2),
         rope_theta=10.0, rope_mixed=True, **kwargs)
     model.default_cfg = _cfg()
     return model

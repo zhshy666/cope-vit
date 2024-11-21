@@ -242,6 +242,7 @@ class SwinTransformerBlock(nn.Module):
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
+        # todo: 改这里把 window size 调整为按照上下文方式进行划分的 window
         if self.shift_size > 0:
             # calculate attention mask for SW-MSA
             H, W = self.input_resolution
