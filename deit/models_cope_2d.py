@@ -80,14 +80,25 @@ class CoPE2d_v2(nn.Module):
         self.cope_y = CoPE_2d_unit(npos_max, head_dim, scale, mode)
         self.dwt = dwt
         # print((img_size // 2)**2, num_patches * num_heads * head_dim)
+        # self.embed_dwt_x = nn.Sequential(
+        #     nn.Linear((img_size // 2)**2, num_patches * num_heads * head_dim),
+        #     nn.ReLU()
+        # )
+        # self.embed_dwt_y = nn.Sequential(
+        #     nn.Linear((img_size // 2)**2, num_patches * num_heads * head_dim),
+        #     nn.ReLU()
+        # )
+        # conv
         self.embed_dwt_x = nn.Sequential(
-            nn.Linear((img_size // 2)**2, num_patches * num_heads * head_dim),
+            nn.Conv2d(in_channels=1, out_channels=num_heads * head_dim, dilation=2, kernel_size=8),
             nn.ReLU()
         )
         self.embed_dwt_y = nn.Sequential(
-            nn.Linear((img_size // 2)**2, num_patches * num_heads * head_dim),
+            nn.Conv2d(in_channels=1, out_channels=num_heads * head_dim, dilation=2, kernel_size=8),
             nn.ReLU()
         )
+        
+        self.norm = nn.LayerNorm(head_dim)
 
     def forward(self, query, key, value, is_cope_k, dwt_x=None, dwt_y=None):
         # query: (batch_size, heads, seq_len, head_dim)
@@ -117,12 +128,22 @@ class CoPE2d_v2(nn.Module):
         # 问题3：能否直接对 key 进行小波变换？这样其实没有显式用到原始图像的信息
         
         if self.dwt:
-            # print(dwt_x.shape)
-            k_x = self.embed_dwt_x(dwt_x.reshape(B, -1)).reshape(B, heads, H, W, head_dim)
-            k_y = self.embed_dwt_y(dwt_y.reshape(B, -1)).reshape(B, heads, H, W, head_dim)
+            # k_x = self.embed_dwt_x(dwt_x.reshape(B, -1)).reshape(B, heads, H, W, head_dim)
+            # k_y = self.embed_dwt_y(dwt_y.reshape(B, -1)).reshape(B, heads, H, W, head_dim)
             
-            k_x = k_x.permute(0, 2, 1, 3, 4).reshape(B*H, heads, W, head_dim)
-            k_y = k_y.permute(0, 3, 1, 2, 4).reshape(B*W, heads, H, head_dim)
+            # conv
+            k_x = self.embed_dwt_x(dwt_x.unsqueeze(1)).reshape(B, heads, head_dim, H, W).permute(0, 1, 3, 4, 2)
+            # print(k_x.shape, heads, head_dim, H, W)
+            # k_x = k_x.reshape(B, heads, head_dim, H, W).permute(0, 1, 3, 4, 2)
+            k_y = self.embed_dwt_y(dwt_y.unsqueeze(1)).reshape(B, heads, head_dim, H, W).permute(0, 1, 3, 4, 2)
+            
+            # use directly
+            # k_x = k_x.permute(0, 2, 1, 3, 4).reshape(B*H, heads, W, head_dim)
+            # k_y = k_y.permute(0, 3, 1, 2, 4).reshape(B*W, heads, H, head_dim)
+            
+            # add
+            k_x = self.norm(key + k_x).permute(0, 2, 1, 3, 4).reshape(B*H, heads, W, head_dim)
+            k_y = self.norm(key + k_y).permute(0, 3, 1, 2, 4).reshape(B*W, heads, H, head_dim)
         else:
             k_x = key.permute(0, 2, 1, 3, 4).reshape(B*H, heads, W, head_dim)
             k_y = key.permute(0, 3, 1, 2, 4).reshape(B*W, heads, H, head_dim)
