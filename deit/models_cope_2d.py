@@ -1,20 +1,19 @@
-from cmath import nan, sqrt
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import pywt
-import cv2
-import numpy as np
 import math
-
+from cmath import nan, sqrt
 from functools import partial
 from typing import Tuple
 
-from timm.models.vision_transformer import Mlp, PatchEmbed , _cfg
+import cv2
+import numpy as np
+import pywt
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 from timm.models.registry import register_model
+from timm.models.vision_transformer import Mlp, PatchEmbed, _cfg
 
-from models_v2 import vit_models, Layer_scale_init_Block, Attention
+from models_v2 import Attention, Layer_scale_init_Block, vit_models
 
 try:
     from timm.models.vision_transformer import HybridEmbed
@@ -22,10 +21,11 @@ except ImportError:
     # for higher version of timm
     from timm.models.vision_transformer_hybrid import HybridEmbed
 
+import pdb
+
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 
-import pdb
 
 # 将 query 拆成两部分分别学习 x 和 y 轴上的位置编码
 class CoPE_2d_unit(nn.Module):
@@ -53,9 +53,6 @@ class CoPE_2d_unit(nn.Module):
             attn_logits = (q * self.scale) @ k.transpose(-2, -1)
         elif self.mode == 2:
             attn_logits = (q * self.scale) @ v.transpose(-2, -1)
-        elif self.mode == 3:  # todo: 在 k 上进行小波变换
-            k = nan
-            attn_logits = (q * self.scale) @ k.transpose(-2, -1)
         gates = torch.sigmoid(attn_logits)
         
         # print(attn_logits.grad)
@@ -88,14 +85,19 @@ class CoPE2d_v2(nn.Module):
         #     nn.Linear((img_size // 2)**2, num_patches * num_heads * head_dim),
         #     nn.ReLU()
         # )
+        
         # conv
         self.embed_dwt_x = nn.Sequential(
             nn.Conv2d(in_channels=1, out_channels=num_heads * head_dim, dilation=2, kernel_size=8),
-            nn.ReLU()
+            # nn.ReLU(),
+            ComplexGaborLayer(omega0=30),
+            nn.MaxPool2d(kernel_size=3, padding=1, stride=1)
         )
         self.embed_dwt_y = nn.Sequential(
             nn.Conv2d(in_channels=1, out_channels=num_heads * head_dim, dilation=2, kernel_size=8),
-            nn.ReLU()
+            # nn.ReLU(),
+            ComplexGaborLayer(omega0=30),
+            nn.MaxPool2d(kernel_size=3, padding=1, stride=1)
         )
         
         self.norm = nn.LayerNorm(head_dim)
@@ -134,7 +136,6 @@ class CoPE2d_v2(nn.Module):
             # conv
             k_x = self.embed_dwt_x(dwt_x.unsqueeze(1)).reshape(B, heads, head_dim, H, W).permute(0, 1, 3, 4, 2)
             # print(k_x.shape, heads, head_dim, H, W)
-            # k_x = k_x.reshape(B, heads, head_dim, H, W).permute(0, 1, 3, 4, 2)
             k_y = self.embed_dwt_y(dwt_y.unsqueeze(1)).reshape(B, heads, head_dim, H, W).permute(0, 1, 3, 4, 2)
             
             # use directly
@@ -142,8 +143,13 @@ class CoPE2d_v2(nn.Module):
             # k_y = k_y.permute(0, 3, 1, 2, 4).reshape(B*W, heads, H, head_dim)
             
             # add
-            k_x = self.norm(key + k_x).permute(0, 2, 1, 3, 4).reshape(B*H, heads, W, head_dim)
-            k_y = self.norm(key + k_y).permute(0, 3, 1, 2, 4).reshape(B*W, heads, H, head_dim)
+            k_x = (self.norm(key) + self.norm(k_x)).permute(0, 2, 1, 3, 4).reshape(B*H, heads, W, head_dim)
+            k_y = (self.norm(key) + self.norm(k_y)).permute(0, 3, 1, 2, 4).reshape(B*W, heads, H, head_dim)
+            
+            # no norm
+            # k_x = (key + k_x).permute(0, 2, 1, 3, 4).reshape(B*H, heads, W, head_dim)
+            # k_y = (key + k_y).permute(0, 3, 1, 2, 4).reshape(B*W, heads, H, head_dim)
+            
         else:
             k_x = key.permute(0, 2, 1, 3, 4).reshape(B*H, heads, W, head_dim)
             k_y = key.permute(0, 3, 1, 2, 4).reshape(B*W, heads, H, head_dim)
@@ -181,6 +187,7 @@ class CoPE2dAttention_v2(Attention):
         self.cope_k = cope_k
         self.cope_q = cope_q
         self.cope_v = cope_v
+        # self.act = ComplexGaborLayer(omega0=30)
 
     def forward(self, x, mask=None, dwt_x=None, dwt_y=None):
         B, N, C = x.shape
@@ -202,7 +209,15 @@ class CoPE2dAttention_v2(Attention):
                 pe = self.cope.get_pos_embed()
                 attn += pe @ pe
 
+        # 加小波激活函数
+        # print(attn.shape)
+        # norm = nn.LayerNorm(N).to(torch.cuda.current_device())
+        # attn = norm(attn)
+        
         attn = attn.softmax(dim=-1)
+        # attn = self.act(
+        #         attn.reshape(B, self.num_heads, -1, 1)
+        #     ).reshape(B, self.num_heads, N, N).float()
         attn = self.attn_drop(attn)
 
         if self.cope_v:
@@ -210,6 +225,11 @@ class CoPE2dAttention_v2(Attention):
             attn += attn * self.cope.get_pos_embed()
 
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        
+        # attn = self.act(
+        #         attn.reshape(B, N, C, 1).permute(0, 2, 1, 3)
+        #     ).reshape(B, C, N).permute(0, 2, 1).float()
+        # print(x.shape)
         x = self.proj(x)
         x = self.proj_drop(x)
 
@@ -290,6 +310,34 @@ class cope_vit_models(vit_models):
         x = self.norm(x)
         return x[:, 0]
 
+# from: https://github.com/294coder/Efficient-MIF/blob/main-release/model/module/fe_block.py
+class ComplexGaborLayer(nn.Module):
+    '''
+        Complex Gabor nonlinearity 
+
+        Inputs:
+            input: Input features
+            omega0: Frequency of Gabor sinusoid term
+            sigma0: Scaling of Gabor Gaussian term
+            trainable: If True, omega and sigma are trainable parameters
+    '''
+
+    def __init__(self, omega0=30.0, sigma0=10.0, trainable=True):
+        super().__init__()
+        self.omega_0 = omega0
+        self.scale_0 = sigma0
+
+        # Set trainable parameters if they are to be simultaneously optimized
+        self.omega_0 = nn.Parameter(self.omega_0 * torch.ones(1), trainable)
+        self.scale_0 = nn.Parameter(self.scale_0 * torch.ones(1), trainable)
+
+    def forward(self, input):
+        input = input.permute(0, -2, -1, 1)
+
+        omega = self.omega_0 * input
+        scale = self.scale_0 * input
+        # return torch.exp(1j * omega - scale.abs().square())
+        return (torch.exp(1j * omega - scale.abs().square())).permute(0, -1, 1, 2).float()
 
 # mode = 0
 @register_model
@@ -328,4 +376,17 @@ def cope_2d_v2_sep_keys_deit_small_patch16_LS(pretrained=False, img_size=224, pr
         **kwargs)
     model.default_cfg = _cfg()
     return model
+
+@register_model
+def cope_2d_v2_sep_keys_deit_dwt_small_patch16_LS(pretrained=False, img_size=224, pretrained_21k = False,  **kwargs):
+    model = cope_vit_models(
+        img_size = img_size, patch_size=16, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, qkv_bias=True,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), block_layers=CoPE_2d_Block, 
+        Attention_block=CoPE2dAttention_v2,
+        rope_theta=10.0, rope_mixed=True, 
+        cope_k=1, mode=1, dwt=1, num_patches=img_size//16,
+        **kwargs)
+    model.default_cfg = _cfg()
+    return model
+
 # swin transformer
