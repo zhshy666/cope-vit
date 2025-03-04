@@ -253,7 +253,7 @@ class vit_models(nn.Module):
         self.num_classes = num_classes
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
-    def forward_features(self, x):
+    def forward_features(self, x, bs=0):
         B = x.shape[0]
         x = self.patch_embed(x)
 
@@ -269,9 +269,9 @@ class vit_models(nn.Module):
         x = self.norm(x)
         return x[:, 0]
 
-    def forward(self, x):
+    def forward(self, x, bs=0):
 
-        x = self.forward_features(x)
+        x = self.forward_features(x, bs=bs)
         
         if self.dropout_rate:
             x = F.dropout(x, p=float(self.dropout_rate), training=self.training)
@@ -308,6 +308,27 @@ def deit_small_patch16_LS(pretrained=False, img_size=224, pretrained_21k = False
             map_location="cpu", check_hash=True
         )
         model.load_state_dict(checkpoint["model"])
+
+    return model
+
+@register_model
+def deit_small_patch4_LS(pretrained=False, img_size=224, pretrained_21k = False,  **kwargs):
+    model = vit_models(
+        img_size = img_size, patch_size=4, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, qkv_bias=True,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6),block_layers=Layer_scale_init_Block, **kwargs)
+    model.default_cfg = _cfg()
+    # if pretrained:
+    #     name = 'https://dl.fbaipublicfiles.com/deit/deit_3_small_'+str(img_size)+'_'
+    #     if pretrained_21k:
+    #         name+='21k.pth'
+    #     else:
+    #         name+='1k.pth'
+            
+    #     checkpoint = torch.hub.load_state_dict_from_url(
+    #         url=name,
+    #         map_location="cpu", check_hash=True
+    #     )
+    #     model.load_state_dict(checkpoint["model"])
 
     return model
 

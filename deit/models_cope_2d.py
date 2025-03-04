@@ -1,3 +1,4 @@
+from inspect import isclass
 import math
 from cmath import nan, sqrt
 from functools import partial
@@ -39,6 +40,9 @@ class CoPE_2d_unit(nn.Module):
         # 初始化 pos_emb 使用正态分布
         trunc_normal_(self.pos_emb, std=.02)
         # nn.init.normal_(self.pos_emb, mean=0.0, std=0.01)
+    
+    def get_pos_embed(self):
+        return self.pos_emb
 
     def forward(self, q, k, v, is_cope_k=1):
         # print(self.w_k.grad)
@@ -62,6 +66,12 @@ class CoPE_2d_unit(nn.Module):
         # interpolate from integer positions
         pos_ceil = pos.ceil().long()
         pos_floor = pos.floor().long()
+        # if is_cope_k == 2:
+        #     print(attn_logits.shape, self.pos_emb.shape, q.shape)
+        #     # torch.Size([256, 6, 2, 2]) torch.Size([1, 64, 10]) torch.Size([256, 6, 2, 64])
+        #     logits_int = torch.matmul(attn_logits, self.pos_emb)
+        #     exit()
+        # else:
         logits_int = torch.matmul(q if is_cope_k else k, self.pos_emb)  # (batch_size, heads, seq_len, npos_max)
         logits_ceil = logits_int.gather(-1, pos_ceil)
         logits_floor = logits_int.gather(-1, pos_floor)
@@ -87,20 +97,23 @@ class CoPE2d_v2(nn.Module):
         # )
         
         # conv
-        self.embed_dwt_x = nn.Sequential(
-            nn.Conv2d(in_channels=1, out_channels=num_heads * head_dim, dilation=2, kernel_size=8),
-            # nn.ReLU(),
-            ComplexGaborLayer(omega0=30),
-            nn.MaxPool2d(kernel_size=3, padding=1, stride=1)
-        )
-        self.embed_dwt_y = nn.Sequential(
-            nn.Conv2d(in_channels=1, out_channels=num_heads * head_dim, dilation=2, kernel_size=8),
-            # nn.ReLU(),
-            ComplexGaborLayer(omega0=30),
-            nn.MaxPool2d(kernel_size=3, padding=1, stride=1)
-        )
+        # self.embed_dwt_x = nn.Sequential(
+        #     nn.Conv2d(in_channels=1, out_channels=num_heads * head_dim, dilation=2, kernel_size=8),
+        #     # nn.ReLU(),
+        #     ComplexGaborLayer(omega0=30),
+        #     nn.MaxPool2d(kernel_size=3, padding=1, stride=1)
+        # )
+        # self.embed_dwt_y = nn.Sequential(
+        #     nn.Conv2d(in_channels=1, out_channels=num_heads * head_dim, dilation=2, kernel_size=8),
+        #     # nn.ReLU(),
+        #     ComplexGaborLayer(omega0=30),
+        #     nn.MaxPool2d(kernel_size=3, padding=1, stride=1)
+        # )
         
         self.norm = nn.LayerNorm(head_dim)
+    
+    def get_pos_embed(self):
+        return self.cope_x.get_pos_embed()
 
     def forward(self, query, key, value, is_cope_k, dwt_x=None, dwt_y=None):
         # query: (batch_size, heads, seq_len, head_dim)
@@ -172,6 +185,7 @@ class CoPE2d_v2(nn.Module):
         # 调整为 (num_patch + 1)
         cope = torch.zeros(B, heads, W * H + 1, W * H + 1, requires_grad=True).to(torch.cuda.current_device())
         cope[:, :, 1:, 1:] = pe_res_x + pe_res_y
+        # print(cope.shape)
     
         return cope
 
@@ -189,7 +203,7 @@ class CoPE2dAttention_v2(Attention):
         self.cope_v = cope_v
         # self.act = ComplexGaborLayer(omega0=30)
 
-    def forward(self, x, mask=None, dwt_x=None, dwt_y=None):
+    def forward(self, x, mask=None, dwt_x=None, dwt_y=None, blk_num=0, bs=0):
         B, N, C = x.shape
 
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
@@ -204,10 +218,11 @@ class CoPE2dAttention_v2(Attention):
         if self.cope_k:
             attn += self.cope(q[:, :, 1:], k[:, :, 1:], v[:, :, 1:], dwt_x=dwt_x, dwt_y=dwt_y, is_cope_k=1)
         if self.cope_q:
-            attn += self.cope(q[:, :, 1:], k[:, :, 1:], v[:, :, 1:], dwt_x=dwt_x, dwt_y=dwt_y, is_cope_k=0)
+            temp = self.cope(q[:, :, 1:], k[:, :, 1:], v[:, :, 1:], dwt_x=dwt_x, dwt_y=dwt_y, is_cope_k=0)
+            attn += temp
             if self.cope_k:
-                pe = self.cope.get_pos_embed()
-                attn += pe @ pe
+                # pe = self.cope.get_pos_embed()
+                attn += temp @ temp
 
         # 加小波激活函数
         # print(attn.shape)
@@ -222,9 +237,18 @@ class CoPE2dAttention_v2(Attention):
 
         if self.cope_v:
             # not test here
-            attn += attn * self.cope.get_pos_embed()
-
-        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+            temp = self.cope(q[:, :, 1:], k[:, :, 1:], v[:, :, 1:], dwt_x=dwt_x, dwt_y=dwt_y, is_cope_k=0)
+            # print(temp.shape, q.shape, attn.shape)
+            # attn += torch.matmul(q, temp)
+            temp = q.permute(0, 1, 3, 2) @ temp
+            # print(temp.shape)
+            x = (attn @ v + temp.permute(0, 1, 3, 2)).transpose(1, 2).reshape(B, N, C)
+            # print(x.shape)
+            # exit()
+        else:
+            x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        
+        # np.save('../draw/batch' + bs + '+layer' + blk_num + '.npy', attn)
         
         # attn = self.act(
         #         attn.reshape(B, N, C, 1).permute(0, 2, 1, 3)
@@ -241,8 +265,9 @@ class CoPE_2d_Block(Layer_scale_init_Block):
         kwargs["Attention_block"] = CoPE2dAttention_v2
         super().__init__(*args, **kwargs)
 
-    def forward(self, x, dwt_x=None, dwt_y=None):
-        x = x + self.drop_path(self.attn(self.norm1(x), dwt_x=dwt_x, dwt_y=dwt_y))
+    def forward(self, x, dwt_x=None, dwt_y=None, blk_num=0, bs=0):
+        x = x + self.drop_path(self.attn(self.norm1(x), dwt_x=dwt_x, dwt_y=dwt_y, 
+                                         blk_num=blk_num, bs=bs))
         x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x
 
@@ -276,7 +301,7 @@ class cope_vit_models(vit_models):
         self.num_classes = num_classes
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
-    def forward_features(self, x):
+    def forward_features(self, x, bs=0):
         B, _, H, W = x.shape
         
         # here: 在图像编码到隐空间前进行小波变换
@@ -301,11 +326,15 @@ class cope_vit_models(vit_models):
         x = x + self.pos_embed
         x = self.pos_drop(x)
 
+        i = 0
         for blk in self.blocks:
             x = blk(x, 
                     dwt_x=torch.tensor(cV).to(torch.cuda.current_device()), 
-                    dwt_y=torch.tensor(cH).to(torch.cuda.current_device())
+                    dwt_y=torch.tensor(cH).to(torch.cuda.current_device()),
+                    blk_num=i,
+                    bs=bs,
                 )
+            i += 1
 
         x = self.norm(x)
         return x[:, 0]
@@ -353,6 +382,90 @@ def cope_2d_v2_deit_small_patch16_LS(pretrained=False, img_size=224, pretrained_
     return model
 
 @register_model
+def cope_2d_v2_deit_small_patch4_LS(pretrained=False, img_size=224, pretrained_21k = False,  **kwargs):
+    model = cope_vit_models(
+        img_size = img_size, patch_size=4, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, qkv_bias=True,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), block_layers=CoPE_2d_Block, 
+        Attention_block=CoPE2dAttention_v2,
+        rope_theta=10.0, rope_mixed=True,
+        cope_k=1, mode=0, num_patches=img_size//4,
+        **kwargs)
+    model.default_cfg = _cfg()
+    return model
+
+@register_model
+def cope_2d_v2_deit_small_patch16_LS_q(pretrained=False, img_size=224, pretrained_21k = False,  **kwargs):
+    model = cope_vit_models(
+        img_size = img_size, patch_size=16, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, qkv_bias=True,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), block_layers=CoPE_2d_Block, 
+        Attention_block=CoPE2dAttention_v2,
+        rope_theta=10.0, rope_mixed=True, 
+        cope_k=0,cope_q=1, mode=0, num_patches=img_size//16,
+        **kwargs)
+    model.default_cfg = _cfg()
+    return model
+
+@register_model
+def cope_2d_v2_deit_small_patch16_LS_v(pretrained=False, img_size=224, pretrained_21k = False,  **kwargs):
+    model = cope_vit_models(
+        img_size = img_size, patch_size=16, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, qkv_bias=True,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), block_layers=CoPE_2d_Block, 
+        Attention_block=CoPE2dAttention_v2,
+        rope_theta=10.0, rope_mixed=True, 
+        cope_k=0,cope_v=1, mode=0, num_patches=img_size//16,
+        **kwargs)
+    model.default_cfg = _cfg()
+    return model
+
+@register_model
+def cope_2d_v2_deit_small_patch16_LS_qk(pretrained=False, img_size=224, pretrained_21k = False,  **kwargs):
+    model = cope_vit_models(
+        img_size = img_size, patch_size=16, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, qkv_bias=True,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), block_layers=CoPE_2d_Block, 
+        Attention_block=CoPE2dAttention_v2,
+        rope_theta=10.0, rope_mixed=True, 
+        cope_k=1,cope_q=1, mode=0, num_patches=img_size//16,
+        **kwargs)
+    model.default_cfg = _cfg()
+    return model
+
+@register_model
+def cope_2d_v2_deit_small_patch16_LS_qv(pretrained=False, img_size=224, pretrained_21k = False,  **kwargs):
+    model = cope_vit_models(
+        img_size = img_size, patch_size=16, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, qkv_bias=True,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), block_layers=CoPE_2d_Block, 
+        Attention_block=CoPE2dAttention_v2,
+        rope_theta=10.0, rope_mixed=True, 
+        cope_k=0,cope_v=1, cope_q=1, mode=0, num_patches=img_size//16,
+        **kwargs)
+    model.default_cfg = _cfg()
+    return model
+
+@register_model
+def cope_2d_v2_deit_small_patch16_LS_kv(pretrained=False, img_size=224, pretrained_21k = False,  **kwargs):
+    model = cope_vit_models(
+        img_size = img_size, patch_size=16, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, qkv_bias=True,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), block_layers=CoPE_2d_Block, 
+        Attention_block=CoPE2dAttention_v2,
+        rope_theta=10.0, rope_mixed=True, 
+        cope_k=1,cope_v=1, mode=0, num_patches=img_size//16,
+        **kwargs)
+    model.default_cfg = _cfg()
+    return model
+
+@register_model
+def cope_2d_v2_deit_small_patch16_LS_qkv(pretrained=False, img_size=224, pretrained_21k = False,  **kwargs):
+    model = cope_vit_models(
+        img_size = img_size, patch_size=16, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, qkv_bias=True,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), block_layers=CoPE_2d_Block, 
+        Attention_block=CoPE2dAttention_v2,
+        rope_theta=10.0, rope_mixed=True, 
+        cope_k=1,cope_v=1, cope_q=1, mode=0, num_patches=img_size//16,
+        **kwargs)
+    model.default_cfg = _cfg()
+    return model
+
+@register_model
 def cope_2d_v2_deit_dwt_small_patch16_LS(pretrained=False, img_size=224, pretrained_21k = False,  **kwargs):
     model = cope_vit_models(
         img_size = img_size, patch_size=16, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, qkv_bias=True,
@@ -373,6 +486,18 @@ def cope_2d_v2_sep_keys_deit_small_patch16_LS(pretrained=False, img_size=224, pr
         Attention_block=CoPE2dAttention_v2,
         rope_theta=10.0, rope_mixed=True, 
         cope_k=1, mode=1, num_patches=img_size//16,
+        **kwargs)
+    model.default_cfg = _cfg()
+    return model
+
+@register_model
+def cope_2d_v2_sep_keys_deit_small_patch4_LS(pretrained=False, img_size=224, pretrained_21k = False,  **kwargs):
+    model = cope_vit_models(
+        img_size = img_size, patch_size=4, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, qkv_bias=True,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), block_layers=CoPE_2d_Block, 
+        Attention_block=CoPE2dAttention_v2,
+        rope_theta=10.0, rope_mixed=True, 
+        cope_k=1, mode=1, num_patches=img_size//4,
         **kwargs)
     model.default_cfg = _cfg()
     return model

@@ -101,6 +101,7 @@ def evaluate(data_loader, model, device):
 
     # switch to evaluation mode
     model.eval()
+    bs = 0
 
     for images, target in metric_logger.log_every(data_loader, 10, header):
         images = images.to(device, non_blocking=True)
@@ -111,9 +112,10 @@ def evaluate(data_loader, model, device):
 
         # compute output
         with torch.cuda.amp.autocast():
-            output = model(images)
+            output = model(images, bs)
             loss = criterion(output, target)
 
+        bs += 1
         acc1, acc5 = accuracy(output, target, topk=(1, 5))
 
         batch_size = images.shape[0]

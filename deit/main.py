@@ -195,6 +195,8 @@ def get_args_parser():
     
     parser.add_argument('--wandb-project', default='Rope-2D', type=str)
     parser.add_argument('--wandb-name', default=None, type=str)
+    parser.add_argument('--eval_checkpoint', default='', type=str)
+    
     return parser
 
 
@@ -322,6 +324,10 @@ def main(args):
             checkpoint_model['pos_embed'] = new_pos_embed
 
         model.load_state_dict(checkpoint_model, strict=False)
+        
+    if args.eval_checkpoint:
+        checkpoint = torch.load(args.eval_checkpoint, map_location='cpu')
+        model.load_state_dict(checkpoint['model'])
         
     if args.attn_only:
         for name_p,p in model.named_parameters():
