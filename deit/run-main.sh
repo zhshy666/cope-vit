@@ -5,11 +5,11 @@ conda activate cv
 # python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model cope_2d_v2_deit_small_patch4_LS --data-path ../data/ --output_dir ../save/[p4]2d-cope+ape+patch4+cifar100/ --data-set CIFAR --batch-size 128 --epochs 400 --input-size 32 --clip-grad 1.0 --wandb-project Rope-2D-cifar100 --wandb-name "[p4]2d cope+ape"
 
 
-python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model rope_mixed_ape_deit_small_patch4_LS --data-path ../data/ --output_dir ../save/[p4]2d-rope+ape/ --data-set CIFAR10 --batch-size 128 --epochs 400 --input-size 32 --wandb-project Rope-2D-cifar10 --wandb-name "[p4]2d rope+ape"
+# python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model rope_mixed_ape_deit_small_patch4_LS --data-path ../data/ --output_dir ../save/[p4]2d-rope+ape/ --data-set CIFAR10 --batch-size 128 --epochs 400 --input-size 32 --wandb-project Rope-2D-cifar10 --wandb-name "[p4]2d rope+ape"
 
 # python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model rope_mixed_ape_deit_small_patch4_LS --data-path ../data/tiny-imagenet-200/ --output_dir ../save/[p4]2d-rope+ape+tiny/ --data-set TINY --batch-size 128 --epochs 400 --input-size 64 --wandb-project Rope-2D-tiny --wandb-name "[p4]2d rope+ape"
 
-python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model rope_mixed_ape_deit_small_patch4_LS --data-path ../data/ --output_dir ../save/[p4]2d-rope+ape+cifar100/ --data-set CIFAR --batch-size 128 --epochs 400 --input-size 32 --wandb-project Rope-2D-cifar100 --wandb-name "[p4]2d rope+ape"
+# python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model rope_mixed_ape_deit_small_patch4_LS --data-path ../data/ --output_dir ../save/[p4]2d-rope+ape+cifar100/ --data-set CIFAR --batch-size 128 --epochs 400 --input-size 32 --wandb-project Rope-2D-cifar100 --wandb-name "[p4]2d rope+ape"
 
 
 
@@ -21,23 +21,26 @@ python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model
 
 
 
-python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model cope_deit_small_patch4_LS --data-path ../data/ --output_dir ../save/[p4]1d-cope+ape/ --data-set CIFAR10 --batch-size 128 --epochs 400 --input-size 32 --wandb-project Rope-2D-cifar10 --wandb-name "[p4]1d cope+ape"
+# python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model cope_deit_small_patch4_LS --data-path ../data/ --output_dir ../save/[p4]1d-cope+ape/ --data-set CIFAR10 --batch-size 128 --epochs 400 --input-size 32 --wandb-project Rope-2D-cifar10 --wandb-name "[p4]1d cope+ape"
 
 # python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model cope_2d_v2_sep_keys_deit_small_patch4_LS --data-path ../data/tiny-imagenet-200/ --output_dir ../save/[p4]2d-cope+ape+sk+tiny/ --data-set TINY --batch-size 128 --epochs 400 --input-size 64 --wandb-project Rope-2D-tiny --wandb-name "[p4]2d cope(sk)+ape"
 
-python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model cope_deit_small_patch4_LS --data-path ../data/ --output_dir ../save/[p4]1d-cope+ape+cifar100/ --data-set CIFAR --batch-size 128 --epochs 400 --input-size 32 --wandb-project Rope-2D-cifar100 --wandb-name "[p4]1d cope+ape"
+python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model cope_deit_small_patch4_LS --data-path ../data/ --output_dir ../save/[p4]1d-cope+ape+cifar100/ --data-set CIFAR --batch-size 128 --epochs 400 --input-size 32 --wandb-project Rope-2D-cifar100 --wandb-name "[p4]1d cope+ape" --clip-grad 1
 
 
-python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model deit_small_patch4_LS --data-path ../data/ --output_dir ../save/vit/ --data-set CIFAR10 --batch-size 128 --epochs 400 --input-size 32 --wandb-project Rope-2D-cifar10 --wandb-name "[p4]vit"
+# python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model deit_small_patch4_LS --data-path ../data/ --output_dir ../save/vit/ --data-set CIFAR10 --batch-size 128 --epochs 400 --input-size 32 --wandb-project Rope-2D-cifar10 --wandb-name "[p4]vit"
 
 # python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model deit_small_patch4_LS --data-path ../data/tiny-imagenet-200/ --output_dir ../save/vit-tiny/ --data-set TINY --batch-size 128 --epochs 400 --input-size 64 --wandb-project Rope-2D-tiny --wandb-name "[p4]vit"
 
-python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model deit_small_patch4_LS --data-path ../data/ --output_dir ../save/vit-cifar100/ --data-set CIFAR --batch-size 128 --epochs 400 --input-size 32 --wandb-project Rope-2D-cifar100 --wandb-name "[p4]vit"
+# python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model deit_small_patch4_LS --data-path ../data/ --output_dir ../save/vit-cifar100/ --data-set CIFAR --batch-size 128 --epochs 400 --input-size 32 --wandb-project Rope-2D-cifar100 --wandb-name "[p4]vit"
 
 
 
-python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model rope_mixed_deit_small_patch4_LS --data-path ../data/ --output_dir ../save/[p4]2d-rope/ --data-set CIFAR10 --batch-size 128 --epochs 400 --input-size 32 --wandb-project Rope-2D-cifar10 --wandb-name "[p4]2d rope"
+# python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model rope_mixed_deit_small_patch4_LS --data-path ../data/ --output_dir ../save/[p4]2d-rope/ --data-set CIFAR10 --batch-size 128 --epochs 400 --input-size 32 --wandb-project Rope-2D-cifar10 --wandb-name "[p4]2d rope"
 
 # python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model rope_mixed_deit_small_patch4_LS --data-path ../data/tiny-imagenet-200/ --output_dir ../save/[p4]2d-rope+tiny/ --data-set TINY --batch-size 128 --epochs 400 --input-size 64 --wandb-project Rope-2D-tiny --wandb-name "[p4]2d rope"
 
-python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model rope_mixed_deit_small_patch4_LS --data-path ../data/ --output_dir ../save/[p4]2d-rope+cifar100/ --data-set CIFAR --batch-size 128 --epochs 400 --input-size 32 --wandb-project Rope-2D-cifar100 --wandb-name "[p4]2d rope"
+python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model rope_mixed_deit_small_patch16_LS --data-path ../data/ --output_dir ../save/[p4]2d-rope+cifar100/ --data-set CIFAR --batch-size 128 --epochs 400 --input-size 224 --wandb-project Rope-2D-cifar100 --wandb-name "[p4]2d rope"
+
+python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model cope_2d_v2_sep_keys_deit_small_patch4_LS_q --data-path ../data/ --output_dir ../save/[sk+ape]2d-cope-k/ --data-set CIFAR10 --batch-size 128 --epochs 400 --input-size 32 --wandb-project Rope-2D-cifar10 --wandb-name "[sk]2d cope+ape(q)"
+

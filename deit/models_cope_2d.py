@@ -175,7 +175,7 @@ class CoPE2d_v2(nn.Module):
         w_y = self.cope_y(q_y, k_y, v_y, is_cope_k)
         
         w_x = w_x.reshape(B, H, heads, W, H).permute(0, 2, 1, 3, 4).reshape(B * heads, H * W, H)
-        w_y = w_y.reshape(B, W, heads, H, W).permute(0, 2, 3, 1, 4).reshape(B * heads, H * W, H)
+        w_y = w_y.reshape(B, W, heads, H, W).permute(0, 2, 3, 1, 4).reshape(B * heads, H * W, W)
 
         # 使用 torch.cdist 计算点对之间的欧氏距离
         pe_res_x = torch.cdist(w_x, w_x, p=2).reshape(B, heads, H*W, H*W).to(torch.cuda.current_device())
@@ -215,8 +215,10 @@ class CoPE2dAttention_v2(Attention):
             attn.masked_fill_(mask == 0, float('-inf'))
 
         # attn += self.cope(q, k, v)
+        temp = 0
         if self.cope_k:
-            attn += self.cope(q[:, :, 1:], k[:, :, 1:], v[:, :, 1:], dwt_x=dwt_x, dwt_y=dwt_y, is_cope_k=1)
+            temp = self.cope(q[:, :, 1:], k[:, :, 1:], v[:, :, 1:], dwt_x=dwt_x, dwt_y=dwt_y, is_cope_k=0)
+            attn += temp
         if self.cope_q:
             temp = self.cope(q[:, :, 1:], k[:, :, 1:], v[:, :, 1:], dwt_x=dwt_x, dwt_y=dwt_y, is_cope_k=0)
             attn += temp
@@ -248,7 +250,8 @@ class CoPE2dAttention_v2(Attention):
         else:
             x = (attn @ v).transpose(1, 2).reshape(B, N, C)
         
-        # np.save('../draw/batch' + bs + '+layer' + blk_num + '.npy', attn)
+        # np.save('../draw/batch' + str(bs) + '+layer' + str(blk_num) + '.npy', attn.cpu().numpy())
+        # np.save('../draw-bias/batch' + str(bs) + '+layer' + str(blk_num) + '.npy', temp.cpu().numpy())
         
         # attn = self.act(
         #         attn.reshape(B, N, C, 1).permute(0, 2, 1, 3)
@@ -498,6 +501,18 @@ def cope_2d_v2_sep_keys_deit_small_patch4_LS(pretrained=False, img_size=224, pre
         Attention_block=CoPE2dAttention_v2,
         rope_theta=10.0, rope_mixed=True, 
         cope_k=1, mode=1, num_patches=img_size//4,
+        **kwargs)
+    model.default_cfg = _cfg()
+    return model
+
+@register_model
+def cope_2d_v2_sep_keys_deit_small_patch4_LS_q(pretrained=False, img_size=224, pretrained_21k = False,  **kwargs):
+    model = cope_vit_models(
+        img_size = img_size, patch_size=4, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, qkv_bias=True,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), block_layers=CoPE_2d_Block, 
+        Attention_block=CoPE2dAttention_v2,
+        rope_theta=10.0, rope_mixed=True, 
+        cope_k=0, cope_q=1, mode=1, num_patches=img_size//4,
         **kwargs)
     model.default_cfg = _cfg()
     return model

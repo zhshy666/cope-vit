@@ -1,0 +1,21 @@
+# cuda 版本 11.7！！！12.x可能可以跑通但需要修改对应的torch版本等
+# 初始在项目根目录
+conda create -n sape python=3.10.9
+conda activate sape
+pip install torch==1.13.1+cu117 torchvision=0.14.1+cu117 --extra-index-url https://download.pytorch.org/whl/cu117
+pip install timm==0.3.2
+
+# apex 库
+cd ../
+git clone https://github.com/NVIDIA/apex
+cd apex
+pip install -v --disable-pip-version-check --no-cache-dir --no-build-isolation --config-settings --global-option=--cpp_ext --config-settings --global-option=--cuda_ext ./
+cd ../
+
+# 运行
+cd cope-vit/deit
+python3 -m torch.distributed.launch --nproc_per_node=4 --use_env main.py --model cope_2d_v2_deit_small_patch16_LS --data-path ../data/IMNET --output_dir ../save/[imagenet]2d-cope/ --data-set IMNET --batch-size 128 --epochs 400 --input-size 224 --wandb-project Rope-2D-imagenet --wandb-name "sape"
+
+
+# cannot import name 'container_abcs' from 'torch._six' 报错参考：https://blog.csdn.net/qq_45281807/article/details/121843592
+
