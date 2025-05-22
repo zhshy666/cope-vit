@@ -253,7 +253,7 @@ class vit_models(nn.Module):
         self.num_classes = num_classes
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
-    def forward_features(self, x, bs=0):
+    def forward_features(self, x):
         B = x.shape[0]
         x = self.patch_embed(x)
 
@@ -269,9 +269,9 @@ class vit_models(nn.Module):
         x = self.norm(x)
         return x[:, 0]
 
-    def forward(self, x, bs=0):
+    def forward(self, x):
 
-        x = self.forward_features(x, bs=bs)
+        x = self.forward_features(x)
         
         if self.dropout_rate:
             x = F.dropout(x, p=float(self.dropout_rate), training=self.training)

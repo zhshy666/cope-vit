@@ -203,7 +203,7 @@ class CoPE2dAttention_v2(Attention):
         self.cope_v = cope_v
         # self.act = ComplexGaborLayer(omega0=30)
 
-    def forward(self, x, mask=None, dwt_x=None, dwt_y=None, blk_num=0, bs=0):
+    def forward(self, x, mask=None, dwt_x=None, dwt_y=None, blk_num=0):
         B, N, C = x.shape
 
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
@@ -268,9 +268,9 @@ class CoPE_2d_Block(Layer_scale_init_Block):
         kwargs["Attention_block"] = CoPE2dAttention_v2
         super().__init__(*args, **kwargs)
 
-    def forward(self, x, dwt_x=None, dwt_y=None, blk_num=0, bs=0):
+    def forward(self, x, dwt_x=None, dwt_y=None, blk_num=0):
         x = x + self.drop_path(self.attn(self.norm1(x), dwt_x=dwt_x, dwt_y=dwt_y, 
-                                         blk_num=blk_num, bs=bs))
+                                         blk_num=blk_num))
         x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x
 
@@ -304,7 +304,7 @@ class cope_vit_models(vit_models):
         self.num_classes = num_classes
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
-    def forward_features(self, x, bs=0):
+    def forward_features(self, x):
         B, _, H, W = x.shape
         
         # here: 在图像编码到隐空间前进行小波变换
@@ -335,7 +335,6 @@ class cope_vit_models(vit_models):
                     dwt_x=torch.tensor(cV).to(torch.cuda.current_device()), 
                     dwt_y=torch.tensor(cH).to(torch.cuda.current_device()),
                     blk_num=i,
-                    bs=bs,
                 )
             i += 1
 
